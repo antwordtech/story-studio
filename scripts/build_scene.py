@@ -1,3 +1,4 @@
+import re
 """Build the 3D scene with two realistic MakeHuman/MPFB2 characters and render frames.
 
 Run: blender -b -P build_scene.py -- --timeline t.json --out frames/ --start 1 --end 100 [--still 1]
@@ -40,7 +41,8 @@ def pick(sub, ext, *prefs):
     for p in prefs:
         words = p.split()
         for x in lst:
-            if all(w in x.lower() for w in words):
+            toks = set(re.split(r"[_/.\-]+", x.lower()))
+            if all(w in toks or (w.rstrip("0123456789") != w and any(t.startswith(w) for t in toks)) for w in words):
                 return x
     return lst[0] if lst else ""
 
@@ -76,11 +78,11 @@ AFR = {"african": 0.9, "caucasian": 0.05, "asian": 0.05}
 rich_body, rich = human(
     "Kwame", {"gender": 1.0, "age": 0.62, "weight": 0.68, "muscle": 0.45, "height": 0.6, "race": AFR},
     ["middleage african male", "african male", "male"],
-    [["suit"], ["shoes0"]], ["short02", "short", ""])
+    [["male_elegantsuit01"], ["shoes01"]], ["short02", ""])
 poor_body, poor = human(
     "Kofi", {"gender": 1.0, "age": 0.5, "weight": 0.4, "muscle": 0.62, "height": 0.55, "race": AFR},
     ["young african male", "african male", "male"],
-    [["tshirt"], ["jeans"], ["pants"], ["shoes0"]], ["short04", "short01", "short", ""])
+    [["male_worksuit01"], ["shoes03"]], ["short01", ""])
 
 rich.location = (-0.42, 0, 0)
 rich.rotation_euler = (0, 0, math.radians(68))
