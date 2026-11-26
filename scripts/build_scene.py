@@ -156,6 +156,15 @@ def animate(rig, who, bones, base, gest, phase):
     spine = rig.pose.bones["spine03"]
     neck = rig.pose.bones["neck02"]
     h0, j0, s0, n0 = head.rotation_quaternion.copy(), jaw.rotation_quaternion.copy(), spine.rotation_quaternion.copy(), neck.rotation_quaternion.copy()
+    import random
+    rnd = random.Random(int(phase * 100))
+    blinks, bt = [], rnd.uniform(0.5, 2.0)
+    while bt < TL["frames"] / FPS:
+        blinks.append(bt); bt += rnd.uniform(2.2, 5.0)
+    lids = [(rig.pose.bones[n], rig.pose.bones[n].rotation_quaternion.copy()) for n in ("orbicularis03.L", "orbicularis03.R") if n in rig.pose.bones]
+    print(who, "eyelid bones", len(lids))
+    hips = rig.pose.bones.get("spine05")
+    p0 = hips.rotation_quaternion.copy() if hips else None
     for f in range(1, TL["frames"] + 1):
         t = (f - 1) / FPS
         env, w = 0.0, 0.0
@@ -167,16 +176,37 @@ def animate(rig, who, bones, base, gest, phase):
                 env = ln["env"][min(k, len(ln["env"]) - 1)]
             if ln["gesture"] != "none":
                 w = max(w, smooth((t - ln["start"] + 0.1) / 0.4) * (1 - smooth((t - ln["end"] + 0.1) / 0.5)))
+        other = 0.0
+        shake = 0.0
+        for ln in TL["lines"]:
+            if ln["who"] in (who, "narrator"):
+                continue
+            if ln["start"] <= t < ln["end"] + 0.3:
+                other = 1.0
+                if who == "poor" and "money is everything" in ln["text"].lower():
+                    shake = smooth((t - ln["start"] - 1.0) / 0.3) * (1 - smooth((t - ln["start"] - 2.6) / 0.4))
         breathe = math.sin(t * 2 * math.pi / 3.8 + phase)
         spine.rotation_quaternion = s0 @ local((1, 0, 0), 0.015 * breathe)
         neck.rotation_quaternion = n0 @ local((0, 0, 1), 0.03 * math.sin(t * 0.7 + phase))
         nod = env * 0.07 + 0.02 * math.sin(t * 4.3 + phase) * (1 if env > 0.05 else 0.3)
-        head.rotation_quaternion = h0 @ local((1, 0, 0), nod) @ local((0, 1, 0), 0.025 * math.sin(t * 1.1 + phase))
+        nod += other * 0.035 * max(0.0, math.sin(t * 2 * math.pi / 1.7 + phase)) ** 3
+        turn = 0.025 * math.sin(t * 1.1 + phase) + shake * 0.12 * math.sin(t * 2 * math.pi * 2.2)
+        tilt = other * 0.04 * math.sin(t * 0.5 + phase)
+        head.rotation_quaternion = h0 @ local((1, 0, 0), nod) @ local((0, 1, 0), turn) @ local((0, 0, 1), tilt)
+        if hips:
+            hips.rotation_quaternion = p0 @ local((0, 1, 0), 0.018 * math.sin(t * 2 * math.pi / 7.0 + phase))
+        bl = 0.0
+        for bt in blinks:
+            d = t - bt
+            if 0 <= d < 0.18:
+                bl = 1 - abs(d - 0.09) / 0.09
+        for lid, q0 in lids:
+            lid.rotation_quaternion = q0 @ local((1, 0, 0), 0.45 * bl)
         jaw.rotation_quaternion = j0 @ local((1, 0, 0), JAW_SIGN * 0.28 * env)
         for b in bones:
             q = base[b].slerp(gest[b], w)
             rig.pose.bones[b].rotation_quaternion = q
-        for pb in [head, jaw, spine, neck] + [rig.pose.bones[b] for b in bones]:
+        for pb in [head, jaw, spine, neck] + ([hips] if hips else []) + [l for l, _ in lids] + [rig.pose.bones[b] for b in bones]:
             pb.keyframe_insert("rotation_quaternion", frame=f)
 
 
@@ -206,6 +236,7 @@ p = fm.node_tree.nodes["Principled BSDF"]
 p.inputs["Base Color"].default_value = (0.18, 0.17, 0.16, 1)
 p.inputs["Roughness"].default_value = 0.55
 floor.data.materials.append(fm)
+floor.is_shadow_catcher = True
 
 
 def light(name, loc, energy, size, color=(1, 1, 1)):
@@ -267,7 +298,12 @@ scn.render.engine = "CYCLES"
 scn.cycles.device = "CPU"
 scn.cycles.samples = int(A.get("--samples", "24"))
 scn.cycles.use_denoising = True
-scn.cycles.max_bounces = 4
+scn.cycles.max_bounces = 3
+scn.cycles.diffuse_bounces = 2
+scn.cycles.glossy_bounces = 2
+scn.cycles.transparent_max_bounces = 6
+scn.cycles.adaptive_threshold = 0.05
+scn.render.film_transparent = False
 scn.cycles.use_adaptive_sampling = True
 scn.render.use_persistent_data = True
 scn.render.resolution_x, scn.render.resolution_y = 720, 1280
