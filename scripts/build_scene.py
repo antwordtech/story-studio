@@ -41,7 +41,7 @@ def pick(sub, ext, *prefs):
     for p in prefs:
         words = p.split()
         for x in lst:
-            toks = set(re.split(r"[_/.\-]+", x.lower()))
+            toks = set(re.split(r"[_/.\-]+", x.lower())) | {x.lower().split("/")[0]}
             if all(w in toks or (w.rstrip("0123456789") != w and any(t.startswith(w) for t in toks)) for w in words):
                 return x
     return lst[0] if lst else ""
