@@ -1,0 +1,18 @@
+{
+  "title": "Money Is Everything?",
+  "characters": {
+    "rich": {"name": "KWAME", "voice": "am_onyx", "color": "&H0037AFD4"},
+    "poor": {"name": "KOFI", "voice": "am_michael", "color": "&H00FFFFFF"},
+    "narrator": {"name": "", "voice": "am_fenrir", "color": "&H0000D7FF"}
+  },
+  "lines": [
+    {"who": "rich", "text": "Look at you. Same old shoes. Same old excuses.", "gesture": "point"},
+    {"who": "poor", "text": "I am working, boss. Every single day.", "gesture": "open"},
+    {"who": "rich", "text": "Working? Money is everything. Without money, nobody listens to you.", "gesture": "point"},
+    {"who": "poor", "text": "Money talks, true. But money never asks where you started.", "gesture": "open"},
+    {"who": "rich", "text": "Then tell me. Where did my money come from?", "gesture": "none"},
+    {"who": "poor", "text": "From a man who woke up early and refused to quit. I am that man now.", "gesture": "open"},
+    {"who": "rich", "text": "Hmm. We will see.", "gesture": "none"},
+    {"who": "narrator", "text": "Your situation is not your destination. Get up. Work. Build.", "gesture": "none"}
+  ]
+}

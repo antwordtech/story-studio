@@ -1,0 +1,121 @@
+name: Produce episode
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "still = 4 test frames, full = whole video"
+        default: full
+        type: choice
+        options: [full, still]
+      samples:
+        default: "24"
+      jaw:
+        default: "1"
+      armside:
+        default: "1"
+
+env:
+  BLENDER_VER: "4.5.17"
+  EPISODE: story/episode01.json
+  CHUNKS: 12
+
+jobs:
+  audio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: sudo apt-get update && sudo apt-get install -y espeak-ng
+      - run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install kokoro soundfile numpy
+      - run: python scripts/gen_audio.py $EPISODE out/audio
+      - uses: actions/upload-artifact@v4
+        with: { name: audio, path: out/audio }
+
+  render:
+    needs: audio
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: true
+      matrix:
+        chunk: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+        if: inputs.mode == 'full' || matrix.chunk == 0
+      - name: Skip other chunks in still mode
+        id: go
+        run: echo "run=${{ inputs.mode == 'full' || matrix.chunk == 0 }}" >> $GITHUB_OUTPUT
+      - uses: actions/download-artifact@v4
+        if: steps.go.outputs.run == 'true'
+        with: { name: audio, path: out/audio }
+      - uses: actions/cache@v4
+        if: steps.go.outputs.run == 'true'
+        with:
+          path: cache
+          key: tools-${{ env.BLENDER_VER }}-v1
+      - name: Download Blender, MPFB2, MakeHuman CC0 assets, HDRI
+        if: steps.go.outputs.run == 'true'
+        run: |
+          mkdir -p cache && cd cache
+          [ -f blender.tar.xz ] || curl -sSL -o blender.tar.xz https://download.blender.org/release/Blender4.5/blender-${BLENDER_VER}-linux-x64.tar.xz
+          [ -f mpfb.zip ] || curl -sSL -o mpfb.zip "https://extensions.blender.org/download/sha256:c075b3e9b94b8e5556a5f03f4653602d02ea306de08126e8f55ed6dee28a2dad/add-on-mpfb-v2.0.18.zip?repository=%2Fapi%2Fv1%2Fextensions%2F&blender_version_min=4.2.0"
+          [ -f sys.zip ] || curl -sSL -o sys.zip https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip
+          [ -f clo.zip ] || curl -sSL -o clo.zip https://files2.makehumancommunity.org/asset_packs/system_clothes_materials01/system_clothes_materials01_cc0.zip
+          if [ ! -f hdri.hdr ]; then
+            URL=$(python3 - <<'EOF'
+          import json, urllib.request
+          u = lambda x: json.load(urllib.request.urlopen(urllib.request.Request(x, headers={"User-Agent": "story-studio"})))
+          a = u("https://api.polyhaven.com/assets?t=hdris&c=urban")
+          pick = next((k for k in sorted(a) if "street" in k), sorted(a)[0])
+          print(u(f"https://api.polyhaven.com/files/{pick}")["hdri"]["2k"]["hdr"]["url"])
+          EOF
+            )
+            echo "HDRI $URL"; curl -sSL -o hdri.hdr "$URL"
+          fi
+          ls -la
+      - name: Install
+        if: steps.go.outputs.run == 'true'
+        run: |
+          sudo apt-get install -y libxi6 libxkbcommon0 libsm6 libgl1 libegl1 libxrender1 libxxf86vm1 libxfixes3
+          tar -xf cache/blender.tar.xz && mv blender-*-linux-x64 blender
+          ./blender/blender -b --factory-startup --command extension install-file -r user_default --enable cache/mpfb.zip
+          DATA=$HOME/.config/blender/4.5/extensions/.user/user_default/mpfb/data
+          mkdir -p $DATA /tmp/packs
+          for z in sys clo; do
+            rm -rf /tmp/packs/$z && unzip -q cache/$z.zip -d /tmp/packs/$z
+            ROOT=$(dirname "$(find /tmp/packs/$z -type d \( -name skins -o -name clothes \) | head -1)")
+            cp -r "$ROOT"/. $DATA/
+          done
+          ls $DATA
+      - name: Render
+        if: steps.go.outputs.run == 'true'
+        run: |
+          TL=out/audio/timeline.json
+          N=$(python3 -c "import json;print(json.load(open('$TL'))['frames'])")
+          S=$(( N * ${{ matrix.chunk }} / CHUNKS + 1 )); E=$(( N * (${{ matrix.chunk }} + 1) / CHUNKS ))
+          EXTRA=""; [ "${{ inputs.mode }}" = "still" ] && EXTRA="--still 1"
+          ./blender/blender -b -P scripts/build_scene.py -- --timeline $TL --out out/frames --start $S --end $E \
+            --hdri cache/hdri.hdr --samples ${{ inputs.samples }} --jaw ${{ inputs.jaw }} --armside ${{ inputs.armside }} $EXTRA 2>&1 | grep -v "^Fra:" | tail -400
+          ls out/frames | wc -l
+      - uses: actions/upload-artifact@v4
+        if: steps.go.outputs.run == 'true'
+        with: { name: "frames-${{ matrix.chunk }}", path: out/frames }
+
+  assemble:
+    needs: render
+    if: inputs.mode == 'full'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      - uses: actions/download-artifact@v4
+        with: { pattern: "frames-*", path: out/frames, merge-multiple: true }
+      - uses: actions/download-artifact@v4
+        with: { name: audio, path: out/audio }
+      - run: python3 scripts/assemble.py $EPISODE out/audio/timeline.json out/frames out/audio/dialogue.wav episode01.mp4
+      - uses: actions/upload-artifact@v4
+        with: { name: video, path: episode01.mp4 }
