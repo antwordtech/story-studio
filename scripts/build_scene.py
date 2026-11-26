@@ -53,7 +53,7 @@ def human(name, pheno, skin_prefs, cloth_prefs, hair_prefs):
     info["phenotype"].update(pheno)
     info["rig"] = "default"
     info["skin_mhmat"] = pick("skins", ".mhmat", *skin_prefs)
-    info["skin_material_type"] = "ENHANCED_SSS"
+    info["skin_material_type"] = "MAKESKIN"
     info["eyes"] = pick("eyes", ".mhclo", "high-poly", "")
     info["eyebrows"] = pick("eyebrows", ".mhclo", "eyebrow001", "")
     info["eyelashes"] = pick("eyelashes", ".mhclo", "eyelashes01", "")
@@ -262,6 +262,44 @@ for i, ln in enumerate(TL["lines"]):
     m.camera = shots[ln["who"]]
 scn.camera = cam_wide
 
+# ---------- cartoon (animated-movie) look ----------
+for rg in (rich, poor):
+    hb = rg.pose.bones["head"]
+    hb.scale = (1.22, 1.22, 1.22)
+    for side in ("l", "r"):
+        for nm in (f"hand_{side}", f"hand.{side.upper()}", f"hand.{side}"):
+            if nm in rg.pose.bones:
+                rg.pose.bones[nm].scale = (1.12, 1.12, 1.12)
+for ob in bpy.data.objects:
+    if ob.type != "MESH" or not ob.active_material:
+        continue
+    for slot in ob.material_slots:
+        m = slot.material
+        if not m or not m.use_nodes:
+            continue
+        for n in m.node_tree.nodes:
+            if n.type != "BSDF_PRINCIPLED":
+                continue
+            for k, v in (("Subsurface Weight", 0.15), ("Roughness", 0.55), ("Specular IOR Level", 0.25), ("Coat Weight", 0.0)):
+                if k in n.inputs and not n.inputs[k].is_linked:
+                    n.inputs[k].default_value = v
+            if "Normal" in n.inputs:
+                for l in list(n.inputs["Normal"].links):
+                    m.node_tree.links.remove(l)
+            if "hair" in ob.name.lower() and "Base Color" in n.inputs:
+                for l in list(n.inputs["Base Color"].links):
+                    m.node_tree.links.remove(l)
+                n.inputs["Base Color"].default_value = (0.012, 0.009, 0.008, 1)
+scn.render.use_freestyle = True
+scn.render.line_thickness_mode = "ABSOLUTE"
+scn.render.line_thickness = 1.6
+ls = scn.view_layers[0].freestyle_settings.linesets[0] if scn.view_layers[0].freestyle_settings.linesets else scn.view_layers[0].freestyle_settings.linesets.new("L")
+ls.linestyle.color = (0.05, 0.03, 0.02)
+ls.select_by_visibility = True
+ls.select_silhouette = True
+ls.select_border = True
+ls.select_crease = False
+
 # ---------- render settings ----------
 scn.render.engine = "CYCLES"
 scn.cycles.device = "CPU"
@@ -273,7 +311,7 @@ scn.render.use_persistent_data = True
 scn.render.resolution_x, scn.render.resolution_y = 720, 1280
 scn.render.fps = FPS
 scn.view_settings.view_transform = "AgX"
-scn.view_settings.look = "AgX - Medium High Contrast"
+scn.view_settings.look = "AgX - Punchy"
 scn.render.image_settings.file_format = "PNG"
 scn.frame_start = 1
 scn.frame_end = TL["frames"]
